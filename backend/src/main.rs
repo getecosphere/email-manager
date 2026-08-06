@@ -455,7 +455,7 @@ async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
                 .rate_counters
                 .update_one(
                     doc! { "key": &global_key },
-                    doc! { "$inc": { "count": 1 }, "$setOnInsert": { "window": current_hour } },
+                    doc! { "$inc": { "count": 1 }, "$setOnInsert": { "window": current_hour.to_rfc3339() } },
                     mongodb::options::UpdateOptions::builder().upsert(true).build(),
                 )
                 .await?;
@@ -464,7 +464,7 @@ async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
                 .rate_counters
                 .update_one(
                     doc! { "key": &recipient_key },
-                    doc! { "$inc": { "count": 1 }, "$setOnInsert": { "window": current_hour } },
+                    doc! { "$inc": { "count": 1 }, "$setOnInsert": { "window": current_hour.to_rfc3339() } },
                     mongodb::options::UpdateOptions::builder().upsert(true).build(),
                 )
                 .await?;
