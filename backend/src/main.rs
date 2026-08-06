@@ -356,7 +356,7 @@ async fn unsubscribe(
         .suppressions
         .update_one(
             doc! { "email": &suppression.email },
-            doc! { "$setOnInsert": { "reason": &suppression.reason, "created_at": suppression.created_at } },
+            doc! { "$setOnInsert": { "reason": &suppression.reason, "created_at": suppression.created_at.to_rfc3339() } },
             mongodb::options::UpdateOptions::builder()
                 .upsert(true)
                 .build(),
@@ -416,7 +416,7 @@ async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
         .find(
             doc! {
                 "status": { "$in": ["queued", "sending"] },
-                "next_attempt_at": { "$lte": Utc::now() }
+                "next_attempt_at": { "$lte": Utc::now().to_rfc3339() }
             },
             mongodb::options::FindOptions::builder()
                 .sort(doc! { "created_at": 1 })
@@ -443,7 +443,7 @@ async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
                             "status": if attempts >= 5 { "failed" } else { "queued" },
                             "attempts": attempts,
                             "error": error.to_string(),
-                            "next_attempt_at": Utc::now() + Duration::seconds(backoff.as_secs() as i64)
+                            "next_attempt_at": (Utc::now() + Duration::seconds(backoff.as_secs() as i64)).to_rfc3339()
                         }
                     },
                     None,
@@ -559,7 +559,7 @@ async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow::Result<()
                 .suppressions
                 .update_one(
                     doc! { "email": &suppression.email },
-                    doc! { "$setOnInsert": { "reason": &suppression.reason, "created_at": suppression.created_at } },
+                    doc! { "$setOnInsert": { "reason": &suppression.reason, "created_at": suppression.created_at.to_rfc3339() } },
                     mongodb::options::UpdateOptions::builder().upsert(true).build(),
                 )
                 .await?;
@@ -574,7 +574,7 @@ async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow::Result<()
         .messages
         .update_one(
             doc! { "id": &message.id },
-            doc! { "$set": { "status": "sent", "sent_at": sent_at, "error": null } },
+            doc! { "$set": { "status": "sent", "sent_at": sent_at.to_rfc3339(), "error": null } },
             None,
         )
         .await?;
