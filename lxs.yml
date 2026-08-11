@@ -1,0 +1,51 @@
+name: email-manager
+domain: email-manager
+version: 1.0.0
+publisher: stuff8
+status: unverified
+license: mit
+summary: "Email: transactional delivery via Brevo, templates, rate limits, warmup"
+
+targets:
+  - linux/amd64
+
+artifacts: {}
+
+contract:
+  version: 1
+  api: "email-manager REST API (send + templates + logs)"
+  env:
+    required:
+      - SERVER_PORT
+      - API_BASE_PATH
+      - MONGODB_URI
+      - BREVO_API_KEY
+      - MAIL_FROM_EMAIL
+      - MAIL_FROM_NAME
+    optional:
+      - EMAIL_PER_RECIPIENT_DAY
+      - EMAIL_GLOBAL_PER_HOUR
+      - EMAIL_WARMUP_MAX_PER_HOUR
+      - EMAIL_WARMUP_DAYS
+  db: mongodb@7
+  network:
+    inbound: [http]
+    outbound: [https]
+  resources:
+    memory: "128m"
+    disk: "256m"
+    startup_seconds: 5
+
+runtime:
+  base: self-contained-static
+  libc: musl
+  dependencies: []
+
+provenance:
+  source: ""
+  commit: ""
+  built_by: ""
+  built_at: ""
+  target: x86_64-unknown-linux-musl
+
+release: []
