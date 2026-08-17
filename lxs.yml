@@ -42,7 +42,7 @@ runtime:
   dependencies: []
 
 provenance:
-  source: ""
+  source: https://github.com/getecosphere/email-manager.git
   commit: ""
   built_by: ""
   built_at: ""
