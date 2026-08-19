@@ -1,0 +1,234 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "email-manager",
+    "version": "1.0.1",
+    "description": "Transactional email domain: queueing, delivery status, suppression, and rate-limited sending via Brevo. No auth on any endpoint; errors are plain-text bodies (not JSON) except /health."
+  },
+  "servers": [
+    { "url": "http://127.0.0.1:8085" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Liveness + provider/queue probe",
+        "responses": {
+          "200": {
+            "description": "JSON health payload",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/email/health": {
+      "get": {
+        "summary": "Liveness + provider/queue probe (gateway alias)",
+        "responses": {
+          "200": {
+            "description": "JSON health payload",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/email/send": {
+      "post": {
+        "summary": "Enqueue one transactional email",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SendRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "id": { "type": "string", "format": "uuid" } }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid recipient email / subject and html are required (plain text)"
+          },
+          "422": {
+            "description": "recipient is suppressed (unsubscribed or hard bounced) (plain text)"
+          },
+          "500": {
+            "description": "Email storage is having trouble. (plain text)"
+          }
+        }
+      }
+    },
+    "/api/email/batch": {
+      "post": {
+        "summary": "Enqueue up to 500 emails",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["messages"],
+                "properties": {
+                  "messages": {
+                    "type": "array",
+                    "maxItems": 500,
+                    "items": { "$ref": "#/components/schemas/SendRequest" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message ids in input order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ids": {
+                      "type": "array",
+                      "items": { "type": "string", "format": "uuid" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch is capped at 500 messages per request, or validation error (plain text)"
+          },
+          "422": {
+            "description": "a message recipient is suppressed (plain text)"
+          },
+          "500": {
+            "description": "Email storage is having trouble. (plain text)"
+          }
+        }
+      }
+    },
+    "/api/email/status/{id}": {
+      "get": {
+        "summary": "Fetch delivery status for a queued message",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message with delivery state",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EmailMessage" }
+              }
+            }
+          },
+          "404": {
+            "description": "message not found (plain text)"
+          },
+          "500": {
+            "description": "Email storage is having trouble. (plain text)"
+          }
+        }
+      }
+    },
+    "/api/email/unsubscribe": {
+      "post": {
+        "summary": "Add an address to the suppression list",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "reason": { "type": "string", "default": "user_requested" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Suppressed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "suppressed": { "type": "boolean", "enum": [true] } }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid email (plain text)"
+          },
+          "500": {
+            "description": "Email storage is having trouble. (plain text)"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["ok"] },
+          "provider_configured": { "type": "boolean" },
+          "queued": { "type": "integer", "description": "count of queued+sending messages" }
+        }
+      },
+      "SendRequest": {
+        "type": "object",
+        "required": ["to", "subject", "html"],
+        "properties": {
+          "to": { "type": "string", "format": "email" },
+          "name": { "type": "string", "default": "" },
+          "subject": { "type": "string" },
+          "html": { "type": "string", "description": "HTML body; plain text not supported" },
+          "campaign": { "type": "string", "default": "transactional" }
+        }
+      },
+      "EmailMessage": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "to": { "type": "string", "format": "email" },
+          "name": { "type": "string" },
+          "subject": { "type": "string" },
+          "html": { "type": "string" },
+          "campaign": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "sending", "sent", "delivered", "bounced", "spam_reported", "suppressed", "failed"]
+          },
+          "attempts": { "type": "integer" },
+          "error": { "type": "string", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" },
+          "sent_at": { "type": "string", "format": "date-time", "nullable": true },
+          "next_attempt_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

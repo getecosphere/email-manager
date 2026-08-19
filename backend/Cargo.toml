@@ -16,7 +16,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tower-http = { version = "0.5", features = ["cors"] }
 dotenvy = "0.15"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 anyhow = "1.0"
 uuid = { version = "1.10", features = ["v4"] }
 futures-util = "0.3"
