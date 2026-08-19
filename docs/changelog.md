@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.2 (2026-08-20)
+- Artifacts: added `darwin/arm64` for local `eco up dev`.
+
 ## 2.0.0 (2026-08-19)
 - Logging contract: service logs now emitted as newline-delimited JSON (NDJSON) to stdout per the platform LXS logging contract (`ts`/`level`/`msg` + optional `service`,`request_id`,`status`,`latency_ms`,`user_id`,`error`). Breaking change — log output format changed.
 
