@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.3 (2026-08-20)
+- Keep all MongoDB timestamp updates in RFC 3339 string form, matching inserted
+  messages and preventing status/rate-counter deserialization failures.
+
 ## 2.1.2 (2026-08-20)
 - Compare queued-message retry timestamps using their persisted RFC 3339
   string representation so due messages are selected reliably.

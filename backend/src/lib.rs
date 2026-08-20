@@ -339,7 +339,7 @@ pub async fn unsubscribe(
         .suppressions
         .update_one(
             doc! { "email": &suppression.email },
-            doc! { "$setOnInsert": { "reason": &suppression.reason, "created_at": suppression.created_at } },
+            doc! { "$setOnInsert": { "reason": &suppression.reason, "created_at": utc_query_timestamp(suppression.created_at) } },
             UpdateOptions::builder()
                 .upsert(true)
                 .build(),
@@ -384,6 +384,7 @@ pub(crate) async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
 
     let current_hour = Utc::now();
     let global_key = global_hour_key(current_hour);
+    let current_hour_text = utc_query_timestamp(current_hour);
     let global_counter = state
         .rate_counters
         .find_one(doc! { "key": &global_key }, None)
@@ -424,6 +425,8 @@ pub(crate) async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
             let attempts = message.attempts + 1;
             let backoff =
                 TokioDuration::from_secs((30u64).saturating_mul(attempts as u64).min(1800));
+            let next_attempt_at =
+                utc_query_timestamp(Utc::now() + Duration::seconds(backoff.as_secs() as i64));
             state
                 .messages
                 .update_one(
@@ -433,7 +436,7 @@ pub(crate) async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
                             "status": if attempts >= 5 { "failed" } else { "queued" },
                             "attempts": attempts,
                             "error": error.to_string(),
-                            "next_attempt_at": Utc::now() + Duration::seconds(backoff.as_secs() as i64)
+                            "next_attempt_at": next_attempt_at
                         }
                     },
                     None,
@@ -444,7 +447,7 @@ pub(crate) async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
                 .rate_counters
                 .update_one(
                     doc! { "key": &global_key },
-                    doc! { "$inc": { "count": 1 }, "$setOnInsert": { "window": current_hour } },
+                    doc! { "$inc": { "count": 1 }, "$setOnInsert": { "window": &current_hour_text } },
                     UpdateOptions::builder().upsert(true).build(),
                 )
                 .await?;
@@ -453,7 +456,7 @@ pub(crate) async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
                 .rate_counters
                 .update_one(
                     doc! { "key": &recipient_key },
-                    doc! { "$inc": { "count": 1 }, "$setOnInsert": { "window": current_hour } },
+                    doc! { "$inc": { "count": 1 }, "$setOnInsert": { "window": &current_hour_text } },
                     UpdateOptions::builder().upsert(true).build(),
                 )
                 .await?;
@@ -568,7 +571,7 @@ pub(crate) async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow
                 .suppressions
                 .update_one(
                     doc! { "email": &suppression.email },
-                    doc! { "$setOnInsert": { "reason": &suppression.reason, "created_at": suppression.created_at } },
+                    doc! { "$setOnInsert": { "reason": &suppression.reason, "created_at": utc_query_timestamp(suppression.created_at) } },
                     UpdateOptions::builder().upsert(true).build(),
                 )
                 .await?;
@@ -578,7 +581,7 @@ pub(crate) async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow
             message_id.unwrap_or_default()
         );
     }
-    let sent_at = Utc::now();
+    let sent_at = utc_query_timestamp(Utc::now());
     state
         .messages
         .update_one(
