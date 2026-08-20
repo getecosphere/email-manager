@@ -4,14 +4,15 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use bson::doc;
 use chrono::{DateTime, Datelike, Duration, Utc};
+use futures_util::TryStreamExt;
 use mongodb::{
     options::{ClientOptions, FindOptions, IndexOptions, UpdateOptions},
     Client, Collection, IndexModel,
 };
 use serde::{Deserialize, Serialize};
-use futures_util::TryStreamExt;
 use std::{env, sync::Arc};
 use tokio::time::{sleep, Duration as TokioDuration};
 use tower_http::cors::{Any, CorsLayer};
@@ -38,12 +39,29 @@ pub struct EmailMessage {
     pub subject: String,
     pub html: String,
     pub campaign: String,
+    #[serde(default)]
+    pub cc: Vec<EmailRecipient>,
+    #[serde(default)]
+    pub attachments: Vec<EmailAttachment>,
     pub status: EmailStatus,
     pub attempts: u32,
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
     pub sent_at: Option<DateTime<Utc>>,
     pub next_attempt_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailRecipient {
+    pub email: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailAttachment {
+    pub name: String,
+    pub content: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,6 +71,10 @@ pub struct SendRequest {
     pub subject: String,
     pub html: String,
     pub campaign: Option<String>,
+    #[serde(default)]
+    pub cc: Vec<EmailRecipient>,
+    #[serde(default)]
+    pub attachments: Vec<EmailAttachment>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -186,7 +208,49 @@ pub async fn enqueue_message(state: &AppState, payload: SendRequest) -> Result<S
         return Err((StatusCode::BAD_REQUEST, "invalid recipient email".into()));
     }
     if payload.subject.trim().is_empty() || payload.html.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "subject and html are required".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "subject and html are required".into(),
+        ));
+    }
+    let mut cc = Vec::with_capacity(payload.cc.len());
+    for recipient in payload.cc {
+        let email = normalize_email(&recipient.email);
+        if !is_valid_email(&email) {
+            return Err((StatusCode::BAD_REQUEST, "invalid cc recipient email".into()));
+        }
+        if email != to && !cc.iter().any(|item: &EmailRecipient| item.email == email) {
+            cc.push(EmailRecipient {
+                email,
+                name: recipient.name.trim().to_string(),
+            });
+        }
+    }
+    if payload.attachments.len() > 5 {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "at most 5 attachments are allowed".into(),
+        ));
+    }
+    let mut decoded_bytes = 0usize;
+    for attachment in &payload.attachments {
+        let name = attachment.name.trim();
+        if name.is_empty() || name.contains('/') || name.contains('\\') {
+            return Err((StatusCode::BAD_REQUEST, "invalid attachment name".into()));
+        }
+        let bytes = BASE64.decode(attachment.content.as_bytes()).map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                "attachment content must be valid base64".into(),
+            )
+        })?;
+        decoded_bytes = decoded_bytes.saturating_add(bytes.len());
+    }
+    if decoded_bytes > 10 * 1024 * 1024 {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "attachments exceed the 10 MB limit".into(),
+        ));
     }
     let suppressed = state
         .suppressions
@@ -207,7 +271,11 @@ pub async fn enqueue_message(state: &AppState, payload: SendRequest) -> Result<S
         name: payload.name.unwrap_or_default(),
         subject: payload.subject,
         html: payload.html,
-        campaign: payload.campaign.unwrap_or_else(|| "transactional".to_string()),
+        campaign: payload
+            .campaign
+            .unwrap_or_else(|| "transactional".to_string()),
+        cc,
+        attachments: payload.attachments,
         status: EmailStatus::Queued,
         attempts: 0,
         error: None,
@@ -227,14 +295,29 @@ pub async fn enqueue_message(state: &AppState, payload: SendRequest) -> Result<S
 pub async fn get_status(
     Path(id): Path<String>,
     State(state): State<AppState>,
-) -> Result<Json<EmailMessage>, ApiError> {
-    state
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let message = state
         .messages
         .find_one(doc! { "id": &id }, None)
         .await
         .map_err(db_error)?
-        .map(Json)
-        .ok_or((StatusCode::NOT_FOUND, "message not found".to_string()))
+        .ok_or((StatusCode::NOT_FOUND, "message not found".to_string()))?;
+    Ok(Json(serde_json::json!({
+        "id": message.id,
+        "to": message.to,
+        "name": message.name,
+        "cc": message.cc,
+        "subject": message.subject,
+        "html": message.html,
+        "campaign": message.campaign,
+        "attachments": message.attachments.iter().map(|a| &a.name).collect::<Vec<_>>(),
+        "status": message.status,
+        "attempts": message.attempts,
+        "error": message.error,
+        "created_at": message.created_at,
+        "sent_at": message.sent_at,
+        "next_attempt_at": message.next_attempt_at,
+    })))
 }
 
 pub async fn unsubscribe(
@@ -247,7 +330,9 @@ pub async fn unsubscribe(
     }
     let suppression = Suppression {
         email,
-        reason: payload.reason.unwrap_or_else(|| "user_requested".to_string()),
+        reason: payload
+            .reason
+            .unwrap_or_else(|| "user_requested".to_string()),
         created_at: Utc::now(),
     };
     state
@@ -271,7 +356,10 @@ pub async fn unsubscribe(
         .await
         .map_err(db_error)?;
     tracing::info!(email = %suppression.email, "email-manager added suppression");
-    Ok((StatusCode::OK, Json(serde_json::json!({ "suppressed": true }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "suppressed": true })),
+    ))
 }
 
 pub fn spawn_worker(state: AppState) {
@@ -337,7 +425,8 @@ pub(crate) async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
         if let Err(error) = send_one(state, &message).await {
             tracing::error!(id = %message.id, error = %error, "email-manager send failed");
             let attempts = message.attempts + 1;
-            let backoff = TokioDuration::from_secs((30u64).saturating_mul(attempts as u64).min(1800));
+            let backoff =
+                TokioDuration::from_secs((30u64).saturating_mul(attempts as u64).min(1800));
             state
                 .messages
                 .update_one(
@@ -413,7 +502,7 @@ pub(crate) async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow
         )
         .await?;
 
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "sender": { "email": state.mail_from_email, "name": state.mail_from_name },
         "to": [{ "email": message.to, "name": message.name }],
         "subject": message.subject,
@@ -428,6 +517,12 @@ pub(crate) async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow
             "X-Eco-Campaign": message.campaign,
         }
     });
+    if !message.cc.is_empty() {
+        payload["cc"] = serde_json::to_value(&message.cc)?;
+    }
+    if !message.attachments.is_empty() {
+        payload["attachment"] = serde_json::to_value(&message.attachments)?;
+    }
 
     let response = state
         .http
@@ -441,7 +536,11 @@ pub(crate) async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow
     if !status.is_success() {
         let message_id = serde_json::from_str::<serde_json::Value>(&body)
             .ok()
-            .and_then(|v| v.get("messageId").and_then(|id| id.as_str()).map(str::to_owned));
+            .and_then(|v| {
+                v.get("messageId")
+                    .and_then(|id| id.as_str())
+                    .map(str::to_owned)
+            });
         let permanent = status == StatusCode::BAD_REQUEST
             || body.contains("invalid")
             || body.contains("bounce")
@@ -449,7 +548,10 @@ pub(crate) async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow
         if permanent {
             let suppression = Suppression {
                 email: message.to.clone(),
-                reason: format!("brevo_rejected:{}", body.chars().take(80).collect::<String>()),
+                reason: format!(
+                    "brevo_rejected:{}",
+                    body.chars().take(80).collect::<String>()
+                ),
                 created_at: Utc::now(),
             };
             state
@@ -471,7 +573,10 @@ pub(crate) async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow
         .messages
         .update_one(
             doc! { "id": &message.id },
-            doc! { "$set": { "status": "sent", "sent_at": sent_at, "error": null } },
+            doc! {
+                "$set": { "status": "sent", "sent_at": sent_at, "error": null },
+                "$unset": { "attachments": "" }
+            },
             None,
         )
         .await?;
@@ -480,7 +585,10 @@ pub(crate) async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow
 
 pub fn db_error(error: impl std::fmt::Display) -> ApiError {
     tracing::error!(error = %error, "email-manager MongoDB operation failed");
-    (StatusCode::INTERNAL_SERVER_ERROR, "Email storage is having trouble.".into())
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Email storage is having trouble.".into(),
+    )
 }
 
 impl AppState {
@@ -536,8 +644,7 @@ pub async fn bootstrap() -> anyhow::Result<axum::Router> {
         http: reqwest::Client::new(),
         brevo_api_key: std::env::var("BREVO_API_KEY").unwrap_or_default(),
         mail_from_email: std::env::var("MAIL_FROM_EMAIL").unwrap_or_default(),
-        mail_from_name: std::env::var("MAIL_FROM_NAME")
-            .unwrap_or_else(|_| "Eco".to_string()),
+        mail_from_name: std::env::var("MAIL_FROM_NAME").unwrap_or_else(|_| "Eco".to_string()),
         per_recipient_day: std::env::var("EMAIL_PER_RECIPIENT_DAY")
             .ok()
             .and_then(|v| v.parse().ok())

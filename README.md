@@ -8,7 +8,7 @@ other domains never talk to a mail provider directly.
 
 - **Public API**
   - `POST /api/email/send` — enqueue one transactional email
-    `{ "to": "...", "name": "...", "subject": "...", "html": "...", "campaign": "..." }`
+    `{ "to": "...", "name": "...", "subject": "...", "html": "...", "campaign": "...", "cc": [...], "attachments": [...] }`
   - `POST /api/email/batch` — enqueue many emails at once
   - `GET /api/email/status/:id` — delivery status of a queued message
   - `POST /api/email/unsubscribe` — `{ "email": "...", "reason": "..." }`

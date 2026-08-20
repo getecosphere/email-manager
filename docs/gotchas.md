@@ -48,6 +48,10 @@ Production-learned constraints not visible in the binary:
   anywhere. `foo@bar` (no dot) is rejected.
 - **HTML-only.** `html` is required and non-empty; plain-text content is not
   accepted. Subject/body length is not capped.
+- **Attachments are bounded and short-lived.** Each attachment is base64 in
+  the request, with at most 5 files and 10 MB decoded data total. Names may not
+  contain path separators. The worker removes attachment contents after Brevo
+  accepts the message; status responses expose filenames only.
 - **Datetimes are RFC 3339 strings** in Mongo (`created_at`, `sent_at`,
   `next_attempt_at`, rate-counter `window`) — fixed in 1.0.1. Do not feed
   integer epoch values.

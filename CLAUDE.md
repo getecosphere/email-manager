@@ -6,7 +6,7 @@ queueing, rate limiting, anti-spam, suppression, and per-message status.
 ## Contract
 
 - `POST /api/email/send` — enqueue one email
-  `{ "to", "name", "subject", "html", "campaign" }` → `{ "id" }`
+  `{ "to", "name", "subject", "html", "campaign", "cc?", "attachments?" }` → `{ "id" }`
 - `POST /api/email/batch` — `{ "messages": [...] }` same shape → `{ "ids": [...] }`
 - `GET /api/email/status/:id` — `{ id, status, to, subject, attempts, error, createdAt, sentAt }`
 - `POST /api/email/unsubscribe` — `{ "email", "reason" }` → adds to suppression list

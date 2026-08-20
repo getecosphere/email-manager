@@ -37,11 +37,15 @@ exception is `GET /health` + `GET /api/email/health`, which return JSON.
   | `subject` | string | yes | non-empty (after trim) |
   | `html` | string | yes | non-empty (after trim); plain text not supported |
   | `campaign` | string | no | default `"transactional"` |
+  | `cc` | `EmailRecipient[]` | no | `{ "email", "name" }`; invalid addresses rejected, duplicates removed, and the primary `to` address omitted |
+  | `attachments` | `EmailAttachment[]` | no | `{ "name", "content" }`, where `content` is base64; max 5 files and 10 MB decoded total |
 - **Success 202:** `{ "id": "<uuid>" }`
 - **Errors:**
   - 400 — `invalid recipient email` (see validation rules in gotchas) or
-    `subject and html are required`
+    `subject and html are required`; invalid CC, attachment names, or base64
+    payloads are also rejected
   - 422 — `recipient is suppressed (unsubscribed or hard bounced)`
+  - 413 — more than 5 attachments or more than 10 MB decoded attachment data
   - 500 — `Email storage is having trouble.` (MongoDB failure)
 
 ### POST /api/email/batch
@@ -69,9 +73,11 @@ exception is `GET /health` + `GET /api/email/health`, which return JSON.
     "id": "7f3a...",
     "to": "user@example.com",
     "name": "User",
+    "cc": [{ "email": "pic@example.com", "name": "PIC Sekolah" }],
     "subject": "Welcome",
     "html": "<p>Hi</p>...",
     "campaign": "welcome",
+    "attachments": ["report.pdf"],
     "status": "sent",
     "attempts": 1,
     "error": null,
@@ -80,7 +86,9 @@ exception is `GET /health` + `GET /api/email/health`, which return JSON.
     "next_attempt_at": "2026-08-13T07:00:00.000Z"
   }
   ```
-  `status` is one of: `queued`, `sending`, `sent`, `delivered`, `bounced`,
+  `attachments` contains file names only; base64 content is never returned and
+  is discarded from storage after a successful provider submission. `status`
+  is one of: `queued`, `sending`, `sent`, `delivered`, `bounced`,
   `spam_reported`, `suppressed`, `failed`. `error` is `null` when no failure.
 - **Errors:**
   - 404 — `message not found`
@@ -108,7 +116,10 @@ Errors are plain-text bodies (an `(StatusCode, String)` pair):
 |---|---|---|
 | 400 | `invalid recipient email` / `invalid email` | email fails validation |
 | 400 | `subject and html are required` | send with empty subject or html |
+| 400 | `invalid cc recipient email` | a CC address fails validation |
+| 400 | `invalid attachment name` / `attachment content must be valid base64` | malformed attachment |
 | 400 | `batch is capped at 500 messages per request` | more than 500 messages |
+| 413 | `at most 5 attachments are allowed` / `attachments exceed the 10 MB limit` | attachment limit exceeded |
 | 404 | `message not found` | unknown status id |
 | 422 | `recipient is suppressed (unsubscribed or hard bounced)` | enqueue to a suppressed address |
 | 500 | `Email storage is having trouble.` | MongoDB operation failed |

@@ -206,7 +206,18 @@
           "name": { "type": "string", "default": "" },
           "subject": { "type": "string" },
           "html": { "type": "string", "description": "HTML body; plain text not supported" },
-          "campaign": { "type": "string", "default": "transactional" }
+          "campaign": { "type": "string", "default": "transactional" },
+          "cc": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/EmailRecipient" },
+            "default": []
+          },
+          "attachments": {
+            "type": "array",
+            "maxItems": 5,
+            "items": { "$ref": "#/components/schemas/EmailAttachment" },
+            "default": []
+          }
         }
       },
       "EmailMessage": {
@@ -218,6 +229,15 @@
           "subject": { "type": "string" },
           "html": { "type": "string" },
           "campaign": { "type": "string" },
+          "cc": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/EmailRecipient" }
+          },
+          "attachments": {
+            "type": "array",
+            "description": "Attachment filenames only; content is never returned",
+            "items": { "type": "string" }
+          },
           "status": {
             "type": "string",
             "enum": ["queued", "sending", "sent", "delivered", "bounced", "spam_reported", "suppressed", "failed"]
@@ -227,6 +247,22 @@
           "created_at": { "type": "string", "format": "date-time" },
           "sent_at": { "type": "string", "format": "date-time", "nullable": true },
           "next_attempt_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "EmailRecipient": {
+        "type": "object",
+        "required": ["email"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string", "default": "" }
+        }
+      },
+      "EmailAttachment": {
+        "type": "object",
+        "required": ["name", "content"],
+        "properties": {
+          "name": { "type": "string", "description": "Filename without path separators" },
+          "content": { "type": "string", "format": "byte", "description": "Base64-encoded file content" }
         }
       }
     }

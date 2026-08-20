@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.0 (2026-08-20)
+- Add optional CC recipients and base64 file attachments to single and batch
+  email requests.
+- Validate attachment count, decoded size, filename, and base64 encoding.
+- Return attachment filenames only from status and discard attachment contents
+  after successful provider submission.
+
 ## 1.0.2 (2026-08-20)
 - Artifacts: added `darwin/arm64` for local `eco up dev`.
 

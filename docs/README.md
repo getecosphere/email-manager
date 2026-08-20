@@ -14,7 +14,8 @@ verifications) with deliverability care and an unsubscribe/suppression list.
 
 - **Owns:** the outbound queue (`messages` collection), delivery status,
   suppression list (`suppressions`), rate counters (`rate_counters`),
-  provider integration (Brevo), auto-appended unsubscribe footer + headers.
+  provider integration (Brevo), CC recipients, base64 file attachments,
+  auto-appended unsubscribe footer + headers.
 - **Never owns:** credentials — `BREVO_API_KEY` is operator-set in `.env`.
   A UI, inbound/receiving email, or template authoring.
 
@@ -24,7 +25,7 @@ verifications) with deliverability care and an unsubscribe/suppression list.
 # ecompose.yml
 services:
   email-manager-backend:
-    lxs: email-manager@1.0.1
+    lxs: email-manager@2.1.0
     grants:
       secrets: [SERVER_PORT, API_BASE_PATH, MONGODB_URI, BREVO_API_KEY, MAIL_FROM_EMAIL, MAIL_FROM_NAME]
 ```
@@ -36,7 +37,7 @@ BASE=http://127.0.0.1:8085
 
 # enqueue one email -> 202 { "id": ... }
 curl -s -X POST "$BASE/api/email/send" -H 'Content-Type: application/json' \
-  -d '{"to":"user@example.com","name":"User","subject":"Welcome","html":"<p>Hi</p>","campaign":"welcome"}'
+  -d '{"to":"user@example.com","name":"User","cc":[{"email":"pic@example.com","name":"PIC"}],"subject":"Welcome","html":"<p>Hi</p>","campaign":"welcome","attachments":[{"name":"report.pdf","content":"JVBERi0xLjQK..."}]}'
 
 # poll its status -> 200
 curl -s "$BASE/api/email/status/<id>"
