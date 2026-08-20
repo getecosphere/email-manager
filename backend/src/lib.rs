@@ -6,7 +6,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use bson::doc;
-use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
+use chrono::{DateTime, Datelike, Duration, SecondsFormat, Timelike, Utc};
 use futures_util::TryStreamExt;
 use mongodb::{
     options::{ClientOptions, FindOptions, IndexOptions, UpdateOptions},
@@ -398,12 +398,13 @@ pub(crate) async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
     let remaining_budget = budget_this_hour.saturating_sub(global_count);
     let to_process: u32 = remaining_budget.min(20);
 
+    let due_before = utc_query_timestamp(Utc::now());
     let mut cursor = state
         .messages
         .find(
             doc! {
                 "status": { "$in": ["queued", "sending"] },
-                "next_attempt_at": { "$lte": Utc::now() }
+                "next_attempt_at": { "$lte": due_before }
             },
             FindOptions::builder()
                 .sort(doc! { "created_at": 1 })
@@ -479,6 +480,10 @@ pub(crate) fn global_hour_key(now: DateTime<Utc>) -> String {
         now.ordinal(),
         now.hour()
     )
+}
+
+pub(crate) fn utc_query_timestamp(now: DateTime<Utc>) -> String {
+    now.to_rfc3339_opts(SecondsFormat::Nanos, true)
 }
 
 pub(crate) async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow::Result<()> {
@@ -618,6 +623,20 @@ mod tests {
         assert_eq!(global_hour_key(first), "global-hour-2026-232-9");
         assert_eq!(global_hour_key(second), "global-hour-2026-232-10");
         assert_ne!(global_hour_key(first), global_hour_key(second));
+    }
+
+    #[test]
+    fn due_message_query_uses_the_persisted_rfc3339_string_shape() {
+        let timestamp = Utc
+            .with_ymd_and_hms(2026, 8, 20, 9, 8, 29)
+            .unwrap()
+            .with_nanosecond(743_509_483)
+            .unwrap();
+
+        assert_eq!(
+            utc_query_timestamp(timestamp),
+            "2026-08-20T09:08:29.743509483Z"
+        );
     }
 }
 

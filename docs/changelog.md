@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.2 (2026-08-20)
+- Compare queued-message retry timestamps using their persisted RFC 3339
+  string representation so due messages are selected reliably.
+
 ## 2.1.1 (2026-08-20)
 - Fix the global hourly rate-limit window key so it rotates every UTC hour
   instead of accumulating all sends for an entire day.
