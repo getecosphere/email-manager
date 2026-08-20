@@ -6,7 +6,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use bson::doc;
-use chrono::{DateTime, Datelike, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
 use futures_util::TryStreamExt;
 use mongodb::{
     options::{ClientOptions, FindOptions, IndexOptions, UpdateOptions},
@@ -383,11 +383,7 @@ pub(crate) async fn worker_tick(state: &AppState) -> anyhow::Result<()> {
     }
 
     let current_hour = Utc::now();
-    let global_key = format!(
-        "global-hour-{}-{}",
-        current_hour.year(),
-        current_hour.ordinal()
-    );
+    let global_key = global_hour_key(current_hour);
     let global_counter = state
         .rate_counters
         .find_one(doc! { "key": &global_key }, None)
@@ -474,6 +470,15 @@ pub(crate) fn warmup_rate(state: &AppState, now: DateTime<Utc>) -> u32 {
     let max = state.warmup_max_per_hour;
     let step = max / state.warmup_days.max(1);
     (step * (day_index + 1)).min(max).max(1)
+}
+
+pub(crate) fn global_hour_key(now: DateTime<Utc>) -> String {
+    format!(
+        "global-hour-{}-{}-{}",
+        now.year(),
+        now.ordinal(),
+        now.hour()
+    )
 }
 
 pub(crate) async fn send_one(state: &AppState, message: &EmailMessage) -> anyhow::Result<()> {
@@ -597,6 +602,22 @@ impl AppState {
             .unwrap_or_else(|_| "https://eco.stuff8.com".to_string())
             .trim_end_matches('/')
             .to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn global_rate_key_rotates_each_hour() {
+        let first = Utc.with_ymd_and_hms(2026, 8, 20, 9, 59, 59).unwrap();
+        let second = Utc.with_ymd_and_hms(2026, 8, 20, 10, 0, 0).unwrap();
+
+        assert_eq!(global_hour_key(first), "global-hour-2026-232-9");
+        assert_eq!(global_hour_key(second), "global-hour-2026-232-10");
+        assert_ne!(global_hour_key(first), global_hour_key(second));
     }
 }
 

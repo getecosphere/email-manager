@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.1 (2026-08-20)
+- Fix the global hourly rate-limit window key so it rotates every UTC hour
+  instead of accumulating all sends for an entire day.
+
 ## 2.1.0 (2026-08-20)
 - Add optional CC recipients and base64 file attachments to single and batch
   email requests.
